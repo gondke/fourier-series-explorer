@@ -38,30 +38,25 @@ def get_multipliers(mode, count):
     return [i for i in range(1, count + 1)]
 
 # ---------------------------------------------------------------------
-# Fully Synchronized Control Component
+# Fully Synchronized Control Component (4 Decimal Precision)
 # ---------------------------------------------------------------------
 def create_synced_control(label_prefix, var_name):
-    """
-    Creates a slider and number input linked to a single unified Session State variable.
-    """
     state_key = f"val_{var_name}"
     slider_key = f"slider_{var_name}"
     num_key = f"num_{var_name}"
 
-    # Initialize master state value if missing
     if state_key not in st.session_state:
-        st.session_state[state_key] = 0.0
+        st.session_state[state_key] = 0.0000
 
-    # Sync Master State -> Widget Keys before rendering
-    st.session_state[slider_key] = float(st.session_state[state_key])
-    st.session_state[num_key] = float(st.session_state[state_key])
+    # Sync Master State -> Widget Keys
+    st.session_state[slider_key] = round(float(st.session_state[state_key]), 4)
+    st.session_state[num_key] = round(float(st.session_state[state_key]), 4)
 
-    # Callbacks to keep master state updated
     def sync_from_slider():
-        st.session_state[state_key] = st.session_state[slider_key]
+        st.session_state[state_key] = round(st.session_state[slider_key], 4)
 
     def sync_from_num():
-        st.session_state[state_key] = st.session_state[num_key]
+        st.session_state[state_key] = round(st.session_state[num_key], 4)
 
     c_s, c_n = st.sidebar.columns([3, 1])
     with c_s:
@@ -70,6 +65,7 @@ def create_synced_control(label_prefix, var_name):
             min_value=-5.0,
             max_value=5.0,
             step=0.0001,
+            format="%.4f",
             key=slider_key,
             on_change=sync_from_slider
         )
@@ -79,12 +75,13 @@ def create_synced_control(label_prefix, var_name):
             min_value=-5.0,
             max_value=5.0,
             step=0.0001,
+            format="%.4f",
             key=num_key,
             on_change=sync_from_num,
             label_visibility="collapsed"
         )
 
-    return float(st.session_state[state_key])
+    return round(float(st.session_state[state_key]), 4)
 
 # ---------------------------------------------------------------------
 # Sidebar Controls
@@ -190,43 +187,52 @@ except Exception:
     y_target = None
 
 # ---------------------------------------------------------------------
-# Rendering Plots
+# Rendering Plots (Main Signal Top, Harmonics Side-by-Side Below)
 # ---------------------------------------------------------------------
 colors = plt.cm.tab10(np.linspace(0, 1, 10))
-fig, (ax_total, ax_cos, ax_sin) = plt.subplots(3, 1, figsize=(10, 11))
 
 def style_axis_interval(ax, title):
-    ax.set_title(title, fontsize=11, fontweight='bold')
+    ax.set_title(title, fontsize=10, fontweight='bold')
     ax.axvspan(a_bound, b_bound, color='lightyellow', alpha=0.5, zorder=0, label="Active Interval")
     ax.axvline(a_bound, color='gray', linestyle='--', linewidth=1)
     ax.axvline(b_bound, color='gray', linestyle='--', linewidth=1)
-    ax.axvline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.75, zorder=2)
+    ax.axvline(0, color='black', linestyle='-', linewidth=1.2, alpha=0.75, zorder=2)
     ax.axhline(0, color='gray', linestyle=':', alpha=0.5)
     ax.grid(True, linestyle=':', alpha=0.6)
-    ax.set_ylabel("Amp", fontsize=9)
+    ax.set_ylabel("Amp", fontsize=8)
 
-# Plot 1: Combined Approximation
+# 1. Total Combined Signal Grid (Full Width Top)
+fig_total, ax_total = plt.subplots(figsize=(9, 2.8))
 style_axis_interval(ax_total, "1. Total Combined Signal Approximation vs Target")
 if y_target is not None and not np.iscomplexobj(y_target):
-    ax_total.plot(x_plot, y_target, color='black', linestyle='--', linewidth=1.8, label="Target f(x)")
+    ax_total.plot(x_plot, y_target, color='black', linestyle='--', linewidth=1.6, label="Target f(x)")
     ax_total.set_ylim(y_min, y_max)
-ax_total.plot(x_plot, total_fourier, color='crimson', linewidth=2.2, label="Constructed S(x)")
+ax_total.plot(x_plot, total_fourier, color='crimson', linewidth=2.0, label="Constructed S(x)")
 ax_total.legend(loc="upper right", fontsize=8)
-
-# Plot 2: Cosine Terms
-style_axis_interval(ax_cos, f"2. Cosine Harmonics ({n_cos} Terms) over [{a_bound:.2f}, {b_bound:.2f}]")
-for i in range(n_cos):
-    ax_cos.plot(x_plot, cos_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"a_{i+1} term")
-ax_cos.plot(x_plot, cos_sum, color='royalblue', linewidth=2, label="a₀/2 + Cos Sum")
-ax_cos.legend(loc="upper right", fontsize=8, ncol=2)
-
-# Plot 3: Sine Terms
-style_axis_interval(ax_sin, f"3. Sine Harmonics ({n_sin} Terms) over [{a_bound:.2f}, {b_bound:.2f}]")
-for i in range(n_sin):
-    ax_sin.plot(x_plot, sin_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"b_{i+1} term")
-ax_sin.plot(x_plot, sin_sum, color='darkorange', linewidth=2, label="Sine Sum")
-ax_sin.set_xlabel("x", fontsize=9)
-ax_sin.legend(loc="upper right", fontsize=8, ncol=2)
-
 plt.tight_layout()
-st.pyplot(fig)
+st.pyplot(fig_total)
+
+# 2 & 3. Cosine and Sine Harmonics Grids (Side by Side Below)
+col_cos_plot, col_sin_plot = st.columns(2)
+
+with col_cos_plot:
+    fig_cos, ax_cos = plt.subplots(figsize=(4.5, 3.2))
+    style_axis_interval(ax_cos, f"2. Cosine Harmonics ({n_cos} Terms)")
+    for i in range(n_cos):
+        ax_cos.plot(x_plot, cos_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"a_{i+1}")
+    ax_cos.plot(x_plot, cos_sum, color='royalblue', linewidth=1.8, label="a₀/2 + Cos Sum")
+    ax_cos.set_xlabel("x", fontsize=8)
+    ax_cos.legend(loc="upper right", fontsize=7, ncol=2)
+    plt.tight_layout()
+    st.pyplot(fig_cos)
+
+with col_sin_plot:
+    fig_sin, ax_sin = plt.subplots(figsize=(4.5, 3.2))
+    style_axis_interval(ax_sin, f"3. Sine Harmonics ({n_sin} Terms)")
+    for i in range(n_sin):
+        ax_sin.plot(x_plot, sin_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"b_{i+1}")
+    ax_sin.plot(x_plot, sin_sum, color='darkorange', linewidth=1.8, label="Sine Sum")
+    ax_sin.set_xlabel("x", fontsize=8)
+    ax_sin.legend(loc="upper right", fontsize=7, ncol=2)
+    plt.tight_layout()
+    st.pyplot(fig_sin)
