@@ -38,9 +38,9 @@ def get_multipliers(mode, count):
     return [i for i in range(1, count + 1)]
 
 # ---------------------------------------------------------------------
-# Fully Synchronized Control Component (4 Decimal Precision)
+# Fully Synchronized Control Component (With Lock & Zero Provision)
 # ---------------------------------------------------------------------
-def create_synced_control(label_prefix, var_name):
+def create_synced_control(label_prefix, var_name, is_locked=False):
     state_key = f"val_{var_name}"
     slider_key = f"slider_{var_name}"
     num_key = f"num_{var_name}"
@@ -58,7 +58,11 @@ def create_synced_control(label_prefix, var_name):
     def sync_from_num():
         st.session_state[state_key] = round(st.session_state[num_key], 4)
 
-    c_s, c_n = st.sidebar.columns([3, 1])
+    def set_to_zero():
+        st.session_state[state_key] = 0.0000
+
+    # Layout: Slider (3 parts), Number Input (1.2 parts), Zero Button (0.8 parts)
+    c_s, c_n, c_z = st.sidebar.columns([3, 1.2, 0.8])
     with c_s:
         st.slider(
             label_prefix,
@@ -67,7 +71,8 @@ def create_synced_control(label_prefix, var_name):
             step=0.0001,
             format="%.4f",
             key=slider_key,
-            on_change=sync_from_slider
+            on_change=sync_from_slider,
+            disabled=is_locked
         )
     with c_n:
         st.number_input(
@@ -78,7 +83,16 @@ def create_synced_control(label_prefix, var_name):
             format="%.4f",
             key=num_key,
             on_change=sync_from_num,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            disabled=is_locked
+        )
+    with c_z:
+        st.button(
+            "0",
+            key=f"zero_{var_name}",
+            on_click=set_to_zero,
+            help=f"Set {label_prefix} to 0.0000",
+            disabled=is_locked
         )
 
     return round(float(st.session_state[state_key]), 4)
@@ -111,6 +125,9 @@ else:
 
 a_bound, b_bound = parse_interval(custom_int_str)
 
+# Provision 1: Checkbox to hide/show interval shade
+show_interval_shade = st.sidebar.checkbox("Highlight Active Interval Zone", value=False)
+
 st.sidebar.markdown("---")
 st.sidebar.header("2. Number of Terms & Modes")
 
@@ -126,21 +143,34 @@ with col_terms2:
 st.sidebar.markdown("---")
 st.sidebar.header("3. Coefficient Controls")
 
+# Provision 2: Lock toggle for mobile scrolling safety
+lock_controls = st.sidebar.checkbox("🔒 Lock All Coefficient Values (Mobile Safety)", value=False)
+
+# Provision 3: Global Reset Button to set all coefficients to 0.0000
+def reset_all_coefficients():
+    for key in list(st.session_state.keys()):
+        if key.startswith("val_"):
+            st.session_state[key] = 0.0000
+
+st.sidebar.button("🧹 Set ALL Coefficients to 0.0000", on_click=reset_all_coefficients, disabled=lock_controls)
+
+st.sidebar.markdown("---")
+
 # DC Component (a0)
-a0 = create_synced_control("a₀", "a0")
+a0 = create_synced_control("a₀", "a0", is_locked=lock_controls)
 
 # Cosine Coefficients
 a_vals = []
 st.sidebar.markdown("**Cosine Coefficients ($a_n$)**")
 for i in range(1, n_cos + 1):
-    val = create_synced_control(f"a_{i}", f"a_{i}")
+    val = create_synced_control(f"a_{i}", f"a_{i}", is_locked=lock_controls)
     a_vals.append(val)
 
 # Sine Coefficients
 b_vals = []
 st.sidebar.markdown("**Sine Coefficients ($b_n$)**")
 for i in range(1, n_sin + 1):
-    val = create_synced_control(f"b_{i}", f"b_{i}")
+    val = create_synced_control(f"b_{i}", f"b_{i}", is_locked=lock_controls)
     b_vals.append(val)
 
 # ---------------------------------------------------------------------
@@ -187,13 +217,17 @@ except Exception:
     y_target = None
 
 # ---------------------------------------------------------------------
-# Rendering Plots (Main Signal Top, Harmonics Side-by-Side Below)
+# Rendering Plots
 # ---------------------------------------------------------------------
 colors = plt.cm.tab10(np.linspace(0, 1, 10))
 
 def style_axis_interval(ax, title):
     ax.set_title(title, fontsize=10, fontweight='bold')
-    ax.axvspan(a_bound, b_bound, color='lightyellow', alpha=0.5, zorder=0, label="Active Interval")
+    
+    # Provision 1 implementation: optional light shading
+    if show_interval_shade:
+        ax.axvspan(a_bound, b_bound, color='yellow', alpha=0.15, zorder=0, label="Active Interval")
+    
     ax.axvline(a_bound, color='gray', linestyle='--', linewidth=1)
     ax.axvline(b_bound, color='gray', linestyle='--', linewidth=1)
     ax.axvline(0, color='black', linestyle='-', linewidth=1.2, alpha=0.75, zorder=2)
@@ -201,7 +235,7 @@ def style_axis_interval(ax, title):
     ax.grid(True, linestyle=':', alpha=0.6)
     ax.set_ylabel("Amp", fontsize=8)
 
-# 1. Total Combined Signal Grid (Full Width Top)
+# 1. Total Combined Signal Grid
 fig_total, ax_total = plt.subplots(figsize=(9, 2.8))
 style_axis_interval(ax_total, "1. Total Combined Signal Approximation vs Target")
 if y_target is not None and not np.iscomplexobj(y_target):
@@ -212,7 +246,7 @@ ax_total.legend(loc="upper right", fontsize=8)
 plt.tight_layout()
 st.pyplot(fig_total)
 
-# 2 & 3. Cosine and Sine Harmonics Grids (Side by Side Below)
+# 2 & 3. Cosine and Sine Harmonics Grids Side-by-Side
 col_cos_plot, col_sin_plot = st.columns(2)
 
 with col_cos_plot:
