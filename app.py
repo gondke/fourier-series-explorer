@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sympy as sp
 
-# Set page configuration
+# Page configuration
 st.set_page_config(
     page_title="Fourier Series Coefficient Explorer",
     layout="wide"
@@ -38,7 +38,56 @@ def get_multipliers(mode, count):
     return [i for i in range(1, count + 1)]
 
 # ---------------------------------------------------------------------
-# Sidebar Configuration & Controls
+# Fully Synchronized Control Component
+# ---------------------------------------------------------------------
+def create_synced_control(label_prefix, var_name):
+    """
+    Creates a slider and number input linked to a single unified Session State variable.
+    """
+    state_key = f"val_{var_name}"
+    slider_key = f"slider_{var_name}"
+    num_key = f"num_{var_name}"
+
+    # Initialize master state value if missing
+    if state_key not in st.session_state:
+        st.session_state[state_key] = 0.0
+
+    # Sync Master State -> Widget Keys before rendering
+    st.session_state[slider_key] = float(st.session_state[state_key])
+    st.session_state[num_key] = float(st.session_state[state_key])
+
+    # Callbacks to keep master state updated
+    def sync_from_slider():
+        st.session_state[state_key] = st.session_state[slider_key]
+
+    def sync_from_num():
+        st.session_state[state_key] = st.session_state[num_key]
+
+    c_s, c_n = st.sidebar.columns([3, 1])
+    with c_s:
+        st.slider(
+            label_prefix,
+            min_value=-5.0,
+            max_value=5.0,
+            step=0.0001,
+            key=slider_key,
+            on_change=sync_from_slider
+        )
+    with c_n:
+        st.number_input(
+            f"{label_prefix} val",
+            min_value=-5.0,
+            max_value=5.0,
+            step=0.0001,
+            key=num_key,
+            on_change=sync_from_num,
+            label_visibility="collapsed"
+        )
+
+    return float(st.session_state[state_key])
+
+# ---------------------------------------------------------------------
+# Sidebar Controls
 # ---------------------------------------------------------------------
 st.sidebar.header("1. Target Signal & Interval")
 
@@ -81,36 +130,24 @@ st.sidebar.markdown("---")
 st.sidebar.header("3. Coefficient Controls")
 
 # DC Component (a0)
-col_a0_slider, col_a0_num = st.sidebar.columns([3, 1])
-with col_a0_slider:
-    a0_val = st.slider("a₀", min_value=-5.0, max_value=5.0, value=0.0, step=0.0001, key="slider_a0")
-with col_a0_num:
-    a0 = st.number_input("a₀ val", min_value=-5.0, max_value=5.0, value=a0_val, step=0.0001, key="num_a0", label_visibility="collapsed")
+a0 = create_synced_control("a₀", "a0")
 
-# Cosine Coefficients (a1 to a10)
+# Cosine Coefficients
 a_vals = []
 st.sidebar.markdown("**Cosine Coefficients ($a_n$)**")
 for i in range(1, n_cos + 1):
-    c_s, c_n = st.sidebar.columns([3, 1])
-    with c_s:
-        val_s = st.slider(f"a_{i}", min_value=-5.0, max_value=5.0, value=0.0, step=0.0001, key=f"slider_a_{i}")
-    with c_n:
-        val_n = st.number_input(f"a_{i} val", min_value=-5.0, max_value=5.0, value=val_s, step=0.0001, key=f"num_a_{i}", label_visibility="collapsed")
-    a_vals.append(val_n)
+    val = create_synced_control(f"a_{i}", f"a_{i}")
+    a_vals.append(val)
 
-# Sine Coefficients (b1 to b10)
+# Sine Coefficients
 b_vals = []
 st.sidebar.markdown("**Sine Coefficients ($b_n$)**")
 for i in range(1, n_sin + 1):
-    c_s, c_n = st.sidebar.columns([3, 1])
-    with c_s:
-        val_s = st.slider(f"b_{i}", min_value=-5.0, max_value=5.0, value=0.0, step=0.0001, key=f"slider_b_{i}")
-    with c_n:
-        val_n = st.number_input(f"b_{i} val", min_value=-5.0, max_value=5.0, value=val_s, step=0.0001, key=f"num_b_{i}", label_visibility="collapsed")
-    b_vals.append(val_n)
+    val = create_synced_control(f"b_{i}", f"b_{i}")
+    b_vals.append(val)
 
 # ---------------------------------------------------------------------
-# Computation & Plotting
+# Math Computation & Signal Generation
 # ---------------------------------------------------------------------
 margin = (b_bound - a_bound) * 0.15
 x_plot = np.linspace(a_bound - margin, b_bound + margin, 1000)
@@ -129,7 +166,7 @@ cos_sum = np.full_like(x_plot, a0 / 2.0) + (np.sum(cos_terms, axis=0) if n_cos >
 sin_sum = np.sum(sin_terms, axis=0) if n_sin > 0 else np.zeros_like(x_plot)
 total_fourier = cos_sum + sin_sum
 
-# Target function evaluation
+# Target Function Parser
 y_target = None
 y_min, y_max = -2.0, 2.0
 try:
@@ -152,7 +189,9 @@ try:
 except Exception:
     y_target = None
 
-# Matplotlib Figure Rendering
+# ---------------------------------------------------------------------
+# Rendering Plots
+# ---------------------------------------------------------------------
 colors = plt.cm.tab10(np.linspace(0, 1, 10))
 fig, (ax_total, ax_cos, ax_sin) = plt.subplots(3, 1, figsize=(10, 11))
 
@@ -166,7 +205,7 @@ def style_axis_interval(ax, title):
     ax.grid(True, linestyle=':', alpha=0.6)
     ax.set_ylabel("Amp", fontsize=9)
 
-# 1. Combined Signal vs Target
+# Plot 1: Combined Approximation
 style_axis_interval(ax_total, "1. Total Combined Signal Approximation vs Target")
 if y_target is not None and not np.iscomplexobj(y_target):
     ax_total.plot(x_plot, y_target, color='black', linestyle='--', linewidth=1.8, label="Target f(x)")
@@ -174,14 +213,14 @@ if y_target is not None and not np.iscomplexobj(y_target):
 ax_total.plot(x_plot, total_fourier, color='crimson', linewidth=2.2, label="Constructed S(x)")
 ax_total.legend(loc="upper right", fontsize=8)
 
-# 2. Cosine Grid
+# Plot 2: Cosine Terms
 style_axis_interval(ax_cos, f"2. Cosine Harmonics ({n_cos} Terms) over [{a_bound:.2f}, {b_bound:.2f}]")
 for i in range(n_cos):
     ax_cos.plot(x_plot, cos_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"a_{i+1} term")
 ax_cos.plot(x_plot, cos_sum, color='royalblue', linewidth=2, label="a₀/2 + Cos Sum")
 ax_cos.legend(loc="upper right", fontsize=8, ncol=2)
 
-# 3. Sine Grid
+# Plot 3: Sine Terms
 style_axis_interval(ax_sin, f"3. Sine Harmonics ({n_sin} Terms) over [{a_bound:.2f}, {b_bound:.2f}]")
 for i in range(n_sin):
     ax_sin.plot(x_plot, sin_terms[i], linestyle=':', color=colors[i], alpha=0.85, label=f"b_{i+1} term")
