@@ -38,15 +38,24 @@ def get_multipliers(mode, count):
     return [i for i in range(1, count + 1)]
 
 # ---------------------------------------------------------------------
-# Fully Synchronized Control Component (With Lock & Zero Provision)
+# Fully Synchronized Control Component (With Individual & Master Lock)
 # ---------------------------------------------------------------------
-def create_synced_control(label_prefix, var_name, is_locked=False):
+def create_synced_control(label_prefix, var_name, master_locked=False):
     state_key = f"val_{var_name}"
     slider_key = f"slider_{var_name}"
     num_key = f"num_{var_name}"
+    lock_key = f"lock_{var_name}"
 
+    # Initialize master value state
     if state_key not in st.session_state:
         st.session_state[state_key] = 0.0000
+
+    # Initialize individual lock state (unlocked by default)
+    if lock_key not in st.session_state:
+        st.session_state[lock_key] = False
+
+    # A control is disabled if either the Master Lock or its Individual Lock is active
+    is_disabled = master_locked or st.session_state[lock_key]
 
     # Sync Master State -> Widget Keys
     st.session_state[slider_key] = round(float(st.session_state[state_key]), 4)
@@ -61,8 +70,12 @@ def create_synced_control(label_prefix, var_name, is_locked=False):
     def set_to_zero():
         st.session_state[state_key] = 0.0000
 
-    # Layout: Slider (3 parts), Number Input (1.2 parts), Zero Button (0.8 parts)
-    c_s, c_n, c_z = st.sidebar.columns([3, 1.2, 0.8])
+    def toggle_individual_lock():
+        st.session_state[lock_key] = not st.session_state[lock_key]
+
+    # Row Layout: Slider (2.8), Number Box (1.2), Lock Toggle (0.6), Zero Button (0.6)
+    c_s, c_n, c_l, c_z = st.sidebar.columns([2.8, 1.2, 0.6, 0.6])
+    
     with c_s:
         st.slider(
             label_prefix,
@@ -72,7 +85,7 @@ def create_synced_control(label_prefix, var_name, is_locked=False):
             format="%.4f",
             key=slider_key,
             on_change=sync_from_slider,
-            disabled=is_locked
+            disabled=is_disabled
         )
     with c_n:
         st.number_input(
@@ -84,7 +97,16 @@ def create_synced_control(label_prefix, var_name, is_locked=False):
             key=num_key,
             on_change=sync_from_num,
             label_visibility="collapsed",
-            disabled=is_locked
+            disabled=is_disabled
+        )
+    with c_l:
+        lock_icon = "🔒" if st.session_state[lock_key] else "🔓"
+        st.button(
+            lock_icon,
+            key=f"btn_lock_{var_name}",
+            on_click=toggle_individual_lock,
+            help=f"Toggle lock for {label_prefix}",
+            disabled=master_locked
         )
     with c_z:
         st.button(
@@ -92,7 +114,7 @@ def create_synced_control(label_prefix, var_name, is_locked=False):
             key=f"zero_{var_name}",
             on_click=set_to_zero,
             help=f"Set {label_prefix} to 0.0000",
-            disabled=is_locked
+            disabled=is_disabled
         )
 
     return round(float(st.session_state[state_key]), 4)
@@ -125,7 +147,7 @@ else:
 
 a_bound, b_bound = parse_interval(custom_int_str)
 
-# Provision 1: Checkbox to hide/show interval shade
+# Checkbox to hide/show interval background shade
 show_interval_shade = st.sidebar.checkbox("Highlight Active Interval Zone", value=False)
 
 st.sidebar.markdown("---")
@@ -143,34 +165,34 @@ with col_terms2:
 st.sidebar.markdown("---")
 st.sidebar.header("3. Coefficient Controls")
 
-# Provision 2: Lock toggle for mobile scrolling safety
-lock_controls = st.sidebar.checkbox("🔒 Lock All Coefficient Values (Mobile Safety)", value=False)
+# Master Lock toggle
+master_lock = st.sidebar.checkbox("🔒 Lock ALL Coefficients (Master Lock)", value=False)
 
-# Provision 3: Global Reset Button to set all coefficients to 0.0000
+# Global Reset Button
 def reset_all_coefficients():
     for key in list(st.session_state.keys()):
         if key.startswith("val_"):
             st.session_state[key] = 0.0000
 
-st.sidebar.button("🧹 Set ALL Coefficients to 0.0000", on_click=reset_all_coefficients, disabled=lock_controls)
+st.sidebar.button("🧹 Set ALL Coefficients to 0.0000", on_click=reset_all_coefficients, disabled=master_lock)
 
 st.sidebar.markdown("---")
 
 # DC Component (a0)
-a0 = create_synced_control("a₀", "a0", is_locked=lock_controls)
+a0 = create_synced_control("a₀", "a0", master_locked=master_lock)
 
 # Cosine Coefficients
 a_vals = []
 st.sidebar.markdown("**Cosine Coefficients ($a_n$)**")
 for i in range(1, n_cos + 1):
-    val = create_synced_control(f"a_{i}", f"a_{i}", is_locked=lock_controls)
+    val = create_synced_control(f"a_{i}", f"a_{i}", master_locked=master_lock)
     a_vals.append(val)
 
 # Sine Coefficients
 b_vals = []
 st.sidebar.markdown("**Sine Coefficients ($b_n$)**")
 for i in range(1, n_sin + 1):
-    val = create_synced_control(f"b_{i}", f"b_{i}", is_locked=lock_controls)
+    val = create_synced_control(f"b_{i}", f"b_{i}", master_locked=master_lock)
     b_vals.append(val)
 
 # ---------------------------------------------------------------------
@@ -224,7 +246,6 @@ colors = plt.cm.tab10(np.linspace(0, 1, 10))
 def style_axis_interval(ax, title):
     ax.set_title(title, fontsize=10, fontweight='bold')
     
-    # Provision 1 implementation: optional light shading
     if show_interval_shade:
         ax.axvspan(a_bound, b_bound, color='yellow', alpha=0.15, zorder=0, label="Active Interval")
     
